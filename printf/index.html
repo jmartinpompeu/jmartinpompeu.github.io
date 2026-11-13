@@ -1,1 +1,246 @@
 
+<!DOCTYPE html>
+<html lang="ca">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>Exercici amb printf</title>
+
+  <script src="./coi-serviceworker.js"></script>
+
+  <link rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+
+  <link rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css">
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #171923;
+      color: #eee;
+      font-family: Arial, sans-serif;
+    }
+
+    h1 {
+      margin-top: 0;
+    }
+
+    .CodeMirror {
+      height: 380px;
+      font-size: 15px;
+      border-radius: 8px;
+    }
+
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 16px 0;
+    }
+
+    button {
+      padding: 11px 17px;
+      border: 0;
+      border-radius: 6px;
+      background: #5865f2;
+      color: white;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: .5;
+      cursor: wait;
+    }
+
+    #status {
+      padding: 10px;
+      background: #252a3a;
+      border-radius: 6px;
+      color: #f0c674;
+    }
+
+    #output {
+      min-height: 150px;
+      padding: 15px;
+      background: #0d1117;
+      border: 1px solid #444;
+      border-radius: 8px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-family: monospace;
+    }
+
+    .download {
+      display: inline-block;
+      margin-top: 12px;
+      color: #8ab4f8;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>Exercici amb printf</h1>
+
+  <div>
+    <textarea id="code">#include <stdio.h>
+#include <math.h>
+
+int main(){
+
+    double vo = 5;
+    double yo = 10;
+    double g = -9.81;
+    double gm = -4.905;
+
+    double Tfinal1, Tfinal2, Vfinal1, Vfinal2;
+
+    printf("\n");
+    printf("Exercici34\n\n");
+
+    printf("En una prova de salt, el saltador s'impulsa verticalment cap amunt amb vo = 5 m/s\n");
+    printf("des d'un trampoli que es troba a yo = 10 m sobre el nivell de l'aigua de la piscina\n\n");
+
+    // Calculos
+
+    Tfinal1 = (-vo + sqrt(vo*vo - 4*gm*yo)) / (2*gm);
+    Tfinal2 = (-vo - sqrt(vo*vo - 4*gm*yo)) / (2*gm);
+
+    Vfinal1 = vo + g*Tfinal1;
+    Vfinal2 = vo + g*Tfinal2;
+
+    printf("a) Quant de temps tarda en arribar a l'aigua? %.2f s\n", Tfinal2);
+
+    printf("b) A quina velocitat arriba a l'aigua? %.2f m/s\n", Vfinal2);
+
+    return 0;
+}</textarea>
+  </div>
+
+  <div class="buttons">
+
+    <button id="run">▶ Compilar i executar</button>
+
+    <button id="copy">Copiar codi</button>
+
+    <button id="downloadC">Descarregar .c</button>
+
+  </div>
+
+  <p id="status">Comprovant el navegador...</p>
+
+  <h3>Consola del programa</h3>
+
+  <pre id="output">Esperant que executis el programa...</pre>
+
+  <div id="downloads"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+
+  <script type="module">
+
+    import {
+      init,
+      Wasmer,
+      Directory
+    } from "https://unpkg.com/@wasmer/sdk@0.8.0/dist/index.mjs";
+
+
+    // 1. PREPARAR L'EDITOR
+
+    const editor = CodeMirror.fromTextArea(
+      document.getElementById("code"),
+      {
+        mode: "text/x-csrc",
+        theme: "dracula",
+        lineNumbers: true,
+        indentUnit: 4,
+        tabSize: 4,
+        lineWrapping: true
+      }
+    );
+
+
+    // 2. ELEMENTS DE LA PAGINA
+
+    const status = document.getElementById("status");
+    const output = document.getElementById("output");
+    const downloads = document.getElementById("downloads");
+    const runButton = document.getElementById("run");
+
+
+    // 3. VARIABLES
+
+    let initialized = false;
+    let clang = null;
+
+
+    // 4. CANVIAR MISSATGE D'ESTAT
+
+    function setStatus(message) {
+      status.textContent = message;
+    }
+
+
+    // 5. COMPROVAR AILLAMENT
+
+    function checkIsolation() {
+      return window.crossOriginIsolated &&
+        typeof SharedArrayBuffer !== "undefined";
+    }
+
+
+    // 6. DESCARREGAR FITXERS
+
+    function downloadFile(data, filename, type) {
+
+      const blob = new Blob([data], { type });
+
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = filename;
+      link.textContent = "Descarregar " + filename;
+      link.className = "download";
+
+      downloads.appendChild(link);
+      downloads.appendChild(document.createElement("br"));
+    }
+
+
+    // 7. PREPARAR COMPILADOR
+
+    async function initialize() {
+
+      if (initialized) return;
+
+      if (!checkIsolation()) {
+        throw new Error(
+          "El navegador no esta aillat.\n" +
+          "Comprova coi-serviceworker.js i recarrega la pagina."
+        );
+      }
+
+      setStatus("Inicialitzant WebAssembly...");
+
+      await init();
+
+      setStatus("Descarregant Clang (primera vegada pot trigar)...");
+
+      clang = await Wasmer.fromRegistry("clang/clang");
+
+      initialized = true;
+
